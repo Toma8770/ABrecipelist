@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "npx vite",
     "build": "npx vite build",
-    "preview": "vite preview",
+    "preview": "vite preview"
   },
   "dependencies": {
     "framer-motion": "^12.0.0",
