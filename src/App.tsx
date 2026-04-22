@@ -4,7 +4,7 @@ import type { IngredientItem, Recipe, RecipeInput, ThemeMode } from "./types";
 
 type StudioMode = "discover" | "compose";
 type Role = "admin" | "member";
-type UnitSystem = "metric" | "imperial";
+type UnitSystem = "metric" | "imperial" | "original";
 
 interface Account {
   username: string;
@@ -103,6 +103,11 @@ const parseAmount = (value: string) => {
   return Number.isFinite(amount) ? amount : null;
 };
 
+const parseServings = (value: string) => {
+  const servings = Number.parseFloat(value);
+  return Number.isFinite(servings) && servings > 0 ? servings : null;
+};
+
 const roundAmount = (value: number) => {
   if (value >= 100) return Math.round(value).toString();
   if (value >= 10) return value.toFixed(1).replace(/\.0$/, "");
@@ -110,6 +115,8 @@ const roundAmount = (value: number) => {
 };
 
 const convertIngredient = (ingredient: IngredientItem, target: UnitSystem): IngredientItem => {
+  if (target === "original") return ingredient;
+
   const normalizedUnit = ingredient.unit.toLowerCase();
   const amount = parseAmount(ingredient.amount);
   if (amount === null) return ingredient;
@@ -137,6 +144,12 @@ const convertIngredient = (ingredient: IngredientItem, target: UnitSystem): Ingr
   }
 
   return ingredient;
+};
+
+const scaleIngredient = (ingredient: IngredientItem, factor: number): IngredientItem => {
+  const amount = parseAmount(ingredient.amount);
+  if (amount === null) return ingredient;
+  return { ...ingredient, amount: roundAmount(amount * factor) };
 };
 
 const normalizeRecipe = (raw: Recipe): Recipe => {
@@ -247,6 +260,8 @@ function RecipeModal({
   initialValues,
   cuisines,
   tags,
+  unitSystem,
+  desiredServings,
   onClose,
   onSubmit,
   onDelete,
@@ -257,6 +272,8 @@ function RecipeModal({
   initialValues: RecipeInput;
   cuisines: string[];
   tags: string[];
+  unitSystem: UnitSystem;
+  desiredServings: number | null;
   onClose: () => void;
   onSubmit: (recipe: RecipeInput) => void;
   onDelete: (id: string) => void;
@@ -282,6 +299,12 @@ function RecipeModal({
 
   const cuisineOptions = uniqueByCase([...cuisines, values.cuisine].filter(Boolean));
   const tagOptions = uniqueByCase([...tags, ...values.tags].filter(Boolean));
+  const baseServings = parseServings(values.servings);
+  const servingScale =
+    readOnly && desiredServings !== null && baseServings !== null ? desiredServings / baseServings : 1;
+  const displayIngredients = readOnly
+    ? values.ingredients.map((ingredient) => convertIngredient(scaleIngredient(ingredient, servingScale), unitSystem))
+    : values.ingredients;
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -496,8 +519,8 @@ function RecipeModal({
                   </div>
                 </div>
                 <div className="ingredient-list">
-                  {values.ingredients.length ? (
-                    values.ingredients.map((ingredient, index) => (
+                  {displayIngredients.length ? (
+                    displayIngredients.map((ingredient, index) => (
                       <div key={`${ingredient.name}-${index}`} className="ingredient-row">
                         <span>{ingredient.name}</span>
                         <span>{ingredient.amount || "-"}</span>
@@ -646,15 +669,24 @@ function SkeletonCard() {
 function RecipeCard({
   recipe,
   unitSystem,
+  desiredServings,
   onEdit,
   canEdit,
 }: {
   recipe: Recipe;
   unitSystem: UnitSystem;
+  desiredServings: number | null;
   onEdit: (recipe: Recipe) => void;
   canEdit: boolean;
 }) {
-  const previewIngredients = recipe.ingredients.slice(0, 3).map((ingredient) => convertIngredient(ingredient, unitSystem));
+  const recipeServings = parseServings(recipe.servings);
+  const servingScale =
+    desiredServings !== null && recipeServings !== null ? desiredServings / recipeServings : 1;
+  const previewIngredients = recipe.ingredients
+    .slice(0, 3)
+    .map((ingredient) => convertIngredient(scaleIngredient(ingredient, servingScale), unitSystem));
+  const displayServings =
+    desiredServings !== null && recipeServings !== null ? String(desiredServings) : recipe.servings || "-";
 
   return (
     <motion.article
@@ -681,7 +713,7 @@ function RecipeCard({
         <div className="meta-row">
           <span>{recipe.prepTime || "-"} min</span>
           <span>{recipe.difficulty}</span>
-          <span>{recipe.servings || "-"} servings</span>
+          <span>{displayServings} servings</span>
         </div>
         <div className="tag-row">
           {recipe.tags.map((tag) => (
@@ -728,7 +760,8 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [activeCuisine, setActiveCuisine] = useState("All");
   const [activeTag, setActiveTag] = useState("All");
-  const [unitSystem, setUnitSystem] = useState<UnitSystem>("metric");
+  const [unitSystem, setUnitSystem] = useState<UnitSystem>("original");
+  const [desiredServingsInput, setDesiredServingsInput] = useState("");
   const [mode, setMode] = useState<StudioMode>("discover");
   const [theme, setTheme] = useState<ThemeMode>("dark");
   const [loading, setLoading] = useState(true);
@@ -838,6 +871,11 @@ export default function App() {
       return matchText && matchCuisine && matchTag;
     });
   }, [recipes, query, activeCuisine, activeTag]);
+
+  const desiredServings = useMemo(() => {
+    const parsed = Number.parseFloat(desiredServingsInput);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }, [desiredServingsInput]);
 
   const register = (usernameRaw: string, password: string): string | null => {
     const username = usernameRaw.trim();
@@ -1030,6 +1068,9 @@ export default function App() {
           <input className="side-search" placeholder="Search recipes..." value={query} onChange={(event) => setQuery(event.target.value)} />
           <p className="side-label">Measurement</p>
           <div className="segmented">
+            <button type="button" className={unitSystem === "original" ? "active" : ""} onClick={() => setUnitSystem("original")}>
+              Original
+            </button>
             <button type="button" className={unitSystem === "metric" ? "active" : ""} onClick={() => setUnitSystem("metric")}>
               Metric
             </button>
@@ -1037,6 +1078,16 @@ export default function App() {
               Imperial
             </button>
           </div>
+          <p className="side-label">Desired servings</p>
+          <input
+            className="side-search"
+            type="number"
+            min="1"
+            step="0.5"
+            placeholder="Use recipe default"
+            value={desiredServingsInput}
+            onChange={(event) => setDesiredServingsInput(event.target.value)}
+          />
           <p className="side-label">Cuisine</p>
           <div className="chips">
             {cuisines.map((cuisine) => (
@@ -1081,6 +1132,7 @@ export default function App() {
                           key={recipe.id}
                           recipe={recipe}
                           unitSystem={unitSystem}
+                          desiredServings={desiredServings}
                           onEdit={(entry) => {
                             if (!currentUser || currentUser.role !== "admin") {
                               setViewOnlyMode(true);
@@ -1192,6 +1244,8 @@ export default function App() {
         initialValues={initialValues}
         cuisines={uniqueByCase([...userCuisines, ...recipes.map((recipe) => recipe.cuisine)])}
         tags={uniqueByCase([...userTags, ...recipes.flatMap((recipe) => recipe.tags)])}
+        unitSystem={unitSystem}
+        desiredServings={desiredServings}
         onClose={() => {
           setModalOpen(false);
           setEditingRecipe(undefined);
