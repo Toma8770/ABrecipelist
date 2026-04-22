@@ -16,7 +16,6 @@ interface Account {
 
 const USERS_KEY = "atelier-users";
 const SESSION_KEY = "atelier-session";
-const RECIPES_KEY = "atelier-recipes";
 const CUISINES_KEY = "atelier-cuisines";
 const TAGS_KEY = "atelier-tags";
 const AUTH_VERSION_KEY = "atelier-auth-version";
@@ -746,11 +745,6 @@ export default function App() {
   const [parallax, setParallax] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setLoading(false), 700);
-    return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
     document.body.dataset.theme = theme;
   }, [theme]);
 
@@ -781,12 +775,26 @@ export default function App() {
       setCurrentUser(normalizedUsers.find((user) => user.username === rawSession) ?? null);
     }
 
-    const storedRecipes = (JSON.parse(localStorage.getItem(RECIPES_KEY) ?? "[]") as Recipe[]).map(normalizeRecipe);
-    setRecipes(storedRecipes);
     const storedCuisines = JSON.parse(localStorage.getItem(CUISINES_KEY) ?? "[]") as string[];
     setUserCuisines(storedCuisines.length ? storedCuisines : ["General"]);
     setUserTags(JSON.parse(localStorage.getItem(TAGS_KEY) ?? "[]") as string[]);
     setHydrated(true);
+
+    const loadRecipes = async () => {
+      try {
+        const response = await fetch("/api/recipes");
+        if (!response.ok) throw new Error(`Failed with status ${response.status}`);
+        const records = (await response.json()) as Recipe[];
+        setRecipes(Array.isArray(records) ? records.map(normalizeRecipe) : []);
+      } catch (_error) {
+        setAdminMessage("Could not load recipes from database.");
+        setRecipes([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void loadRecipes();
   }, []);
 
   useEffect(() => {
@@ -799,11 +807,6 @@ export default function App() {
     if (currentUser) localStorage.setItem(SESSION_KEY, currentUser.username);
     else localStorage.removeItem(SESSION_KEY);
   }, [currentUser, hydrated]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    localStorage.setItem(RECIPES_KEY, JSON.stringify(recipes));
-  }, [recipes, hydrated]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -873,33 +876,66 @@ export default function App() {
     setModalOpen(true);
   };
 
-  const handleSubmit = (input: RecipeInput) => {
+  const saveRecipe = async (input: RecipeInput) => {
     if (!currentUser || currentUser.role !== "admin") return;
     const payload = {
       ...input,
+      author: currentUser.username,
       image:
         input.image ||
         "https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&w=1300&q=80",
     };
-    if (editingRecipe) {
-      setRecipes((prev) => prev.map((recipe) => (recipe.id === editingRecipe.id ? { ...recipe, ...payload } : recipe)));
-    } else {
-      const recipe: Recipe = {
-        id: `r-${Date.now()}`,
-        author: currentUser.username,
-        ...payload,
-      };
-      setRecipes((prev) => [recipe, ...prev]);
+
+    try {
+      if (editingRecipe) {
+        const response = await fetch(`/api/recipes?id=${encodeURIComponent(editingRecipe.id)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) throw new Error(`Failed with status ${response.status}`);
+        const updated = normalizeRecipe((await response.json()) as Recipe);
+        setRecipes((prev) => prev.map((recipe) => (recipe.id === editingRecipe.id ? updated : recipe)));
+      } else {
+        const response = await fetch("/api/recipes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) throw new Error(`Failed with status ${response.status}`);
+        const created = normalizeRecipe((await response.json()) as Recipe);
+        setRecipes((prev) => [created, ...prev]);
+      }
+      setModalOpen(false);
+      setEditingRecipe(undefined);
+      setAdminMessage("");
+    } catch (_error) {
+      setAdminMessage("Could not save recipe. Please retry.");
     }
-    setModalOpen(false);
-    setEditingRecipe(undefined);
+  };
+
+  const handleSubmit = (input: RecipeInput) => {
+    void saveRecipe(input);
+  };
+
+  const deleteRecipe = async (id: string) => {
+    if (!currentUser || currentUser.role !== "admin") return;
+    try {
+      const response = await fetch(`/api/recipes?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error(`Failed with status ${response.status}`);
+      setRecipes((prev) => prev.filter((recipe) => recipe.id !== id));
+      setModalOpen(false);
+      setEditingRecipe(undefined);
+      setAdminMessage("");
+    } catch (_error) {
+      setAdminMessage("Could not delete recipe. Please retry.");
+    }
   };
 
   const handleDelete = (id: string) => {
-    if (!currentUser || currentUser.role !== "admin") return;
-    setRecipes((prev) => prev.filter((recipe) => recipe.id !== id));
-    setModalOpen(false);
-    setEditingRecipe(undefined);
+    void deleteRecipe(id);
   };
 
   const addCuisine = () => {
