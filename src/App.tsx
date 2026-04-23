@@ -1,5 +1,6 @@
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { IngredientItem, Recipe, RecipeInput, ThemeMode } from "./types";
 
 type StudioMode = "discover" | "compose";
@@ -18,6 +19,7 @@ const USERS_KEY = "atelier-users";
 const SESSION_KEY = "atelier-session";
 const CUISINES_KEY = "atelier-cuisines";
 const TAGS_KEY = "atelier-tags";
+const RECIPES_KEY = "atelier-recipes";
 const AUTH_VERSION_KEY = "atelier-auth-version";
 const AUTH_VERSION = "v4";
 
@@ -97,6 +99,25 @@ const createAdminAccount = (): Account => ({
   ssid: generateSSID(ADMIN_USERNAME),
   createdAt: Date.now(),
 });
+
+const generateLocalRecipeId = () =>
+  `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+const readLocalRecipes = () => {
+  try {
+    const records = JSON.parse(localStorage.getItem(RECIPES_KEY) ?? "[]") as Recipe[];
+    return Array.isArray(records) ? records.map(normalizeRecipe) : [];
+  } catch (_error) {
+    return [];
+  }
+};
+
+const writeLocalRecipes = (records: Recipe[]) => {
+  localStorage.setItem(RECIPES_KEY, JSON.stringify(records));
+};
+
+const isRecipeLike = (value: unknown): value is Partial<Recipe> =>
+  typeof value === "object" && value !== null && "title" in value && "cuisine" in value;
 
 const parseAmount = (value: string) => {
   const amount = Number.parseFloat(value);
@@ -225,7 +246,7 @@ function UploadDropzone({
         }}
       />
       <div className="dropzone-copy">
-        <p>{image ? "Swap cover image" : "Drag and drop image"}</p>
+        <p>{image ? "Swap cover image" : "Add cover image"}</p>
         <span>or click to upload</span>
       </div>
       <AnimatePresence mode="wait">
@@ -266,6 +287,7 @@ function RecipeModal({
   onSubmit,
   onDelete,
   readOnly,
+  statusMessage,
 }: {
   open: boolean;
   editing?: Recipe;
@@ -278,6 +300,7 @@ function RecipeModal({
   onSubmit: (recipe: RecipeInput) => void;
   onDelete: (id: string) => void;
   readOnly: boolean;
+  statusMessage: string;
 }) {
   const [values, setValues] = useState<RecipeInput>(initialValues);
   const [pendingTag, setPendingTag] = useState("");
@@ -320,13 +343,14 @@ function RecipeModal({
   return (
     <AnimatePresence>
       {open && (
-        <motion.div className="modal-root fullscreen" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+        <motion.div className="modal-root" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          <motion.div className="modal-backdrop" onClick={onClose} />
           <motion.form
-            className="recipe-modal fullscreen"
+            className="recipe-modal editor-modal"
             onSubmit={handleSubmit}
-            initial={reduced ? false : { opacity: 0, scale: 0.995 }}
+            initial={reduced ? false : { opacity: 0, y: 26, scale: 0.98 }}
             animate={reduced ? {} : { opacity: 1, scale: 1 }}
-            exit={reduced ? {} : { opacity: 0, scale: 0.995 }}
+            exit={reduced ? {} : { opacity: 0, y: 18, scale: 0.98 }}
             transition={{ duration: 0.25, ease: motionEase }}
           >
             <header className="modal-topbar">
@@ -335,11 +359,11 @@ function RecipeModal({
                 <h2>{editing ? "Edit recipe" : "Create recipe"}</h2>
               </div>
               <button type="button" className="ghost" onClick={onClose}>
-                Exit editor
+                Close
               </button>
             </header>
 
-            <div className="modal-grid fullscreen">
+            <div className="modal-grid editor-grid">
               <section className="field-block">
                 <div className="field">
                   <label>Recipe title</label>
@@ -552,9 +576,12 @@ function RecipeModal({
             </div>
 
             <footer className="modal-footer">
-              <span className="helper">
-                {readOnly ? "Viewing mode: sign in as admin to edit." : "Ingredient conversion happens automatically on the home page."}
-              </span>
+              <div className="footer-copy">
+                <span className="helper">
+                  {readOnly ? "Viewing mode: sign in as admin to edit." : "Ingredient conversion happens automatically on the home page."}
+                </span>
+                {statusMessage ? <span className="helper status-message">{statusMessage}</span> : null}
+              </div>
               <div className="topbar-actions">
                 {editing && !readOnly ? (
                   <button type="button" className="danger" onClick={() => onDelete(editing.id)}>
@@ -671,12 +698,14 @@ function RecipeCard({
   unitSystem,
   desiredServings,
   onEdit,
+  onExport,
   canEdit,
 }: {
   recipe: Recipe;
   unitSystem: UnitSystem;
   desiredServings: number | null;
   onEdit: (recipe: Recipe) => void;
+  onExport: (recipe: Recipe) => void;
   canEdit: boolean;
 }) {
   const recipeServings = parseServings(recipe.servings);
@@ -706,7 +735,7 @@ function RecipeCard({
       </div>
       <div className="card-body">
         <p className="card-cuisine">
-          {recipe.cuisine} cuisine 
+          {recipe.cuisine} cuisine
         </p>
         <h3>{recipe.title}</h3>
         <p className="card-description">{recipe.description}</p>
@@ -736,19 +765,34 @@ function RecipeCard({
           <p>{recipe.steps[1] ?? ""}</p>
         </div>
       </div>
-      {canEdit ? (
+      <div className="card-actions">
         <motion.button
-          className="card-edit"
+          className="card-export"
           onClick={(event) => {
             event.stopPropagation();
-            onEdit(recipe);
+            onExport(recipe);
           }}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
+          type="button"
         >
-          Edit
+          Export
         </motion.button>
-      ) : null}
+        {canEdit ? (
+          <motion.button
+            className="card-edit"
+            onClick={(event) => {
+              event.stopPropagation();
+              onEdit(recipe);
+            }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            type="button"
+          >
+            Edit
+          </motion.button>
+        ) : null}
+      </div>
     </motion.article>
   );
 }
@@ -818,10 +862,17 @@ export default function App() {
         const response = await fetch("/api/recipes");
         if (!response.ok) throw new Error(`Failed with status ${response.status}`);
         const records = (await response.json()) as Recipe[];
-        setRecipes(Array.isArray(records) ? records.map(normalizeRecipe) : []);
+        const normalizedRecords = Array.isArray(records) ? records.map(normalizeRecipe) : [];
+        setRecipes(normalizedRecords);
+        writeLocalRecipes(normalizedRecords);
       } catch (_error) {
-        setAdminMessage("Could not load recipes from database.");
-        setRecipes([]);
+        const localRecipes = readLocalRecipes();
+        setAdminMessage(
+          localRecipes.length
+            ? "Database unavailable; showing locally saved recipes."
+            : "Could not load recipes from database.",
+        );
+        setRecipes(localRecipes);
       } finally {
         setLoading(false);
       }
@@ -909,8 +960,12 @@ export default function App() {
       setAuthOpen(true);
       return;
     }
-    if (currentUser.role !== "admin") return;
+    if (currentUser.role !== "admin") {
+      setAdminMessage("Admin access is required to create recipes.");
+      return;
+    }
     setEditingRecipe(undefined);
+    setViewOnlyMode(false);
     setModalOpen(true);
   };
 
@@ -933,7 +988,11 @@ export default function App() {
         });
         if (!response.ok) throw new Error(`Failed with status ${response.status}`);
         const updated = normalizeRecipe((await response.json()) as Recipe);
-        setRecipes((prev) => prev.map((recipe) => (recipe.id === editingRecipe.id ? updated : recipe)));
+        setRecipes((prev) => {
+          const next = prev.map((recipe) => (recipe.id === editingRecipe.id ? updated : recipe));
+          writeLocalRecipes(next);
+          return next;
+        });
       } else {
         const response = await fetch("/api/recipes", {
           method: "POST",
@@ -942,13 +1001,32 @@ export default function App() {
         });
         if (!response.ok) throw new Error(`Failed with status ${response.status}`);
         const created = normalizeRecipe((await response.json()) as Recipe);
-        setRecipes((prev) => [created, ...prev]);
+        setRecipes((prev) => {
+          const next = [created, ...prev];
+          writeLocalRecipes(next);
+          return next;
+        });
       }
       setModalOpen(false);
       setEditingRecipe(undefined);
       setAdminMessage("");
     } catch (_error) {
-      setAdminMessage("Could not save recipe. Please retry.");
+      const fallbackRecipe = normalizeRecipe({
+        id: editingRecipe?.id ?? generateLocalRecipeId(),
+        author: currentUser.username,
+        ...payload,
+      });
+
+      setRecipes((prev) => {
+        const next = editingRecipe
+          ? prev.map((recipe) => (recipe.id === editingRecipe.id ? fallbackRecipe : recipe))
+          : [fallbackRecipe, ...prev];
+        writeLocalRecipes(next);
+        return next;
+      });
+      setModalOpen(false);
+      setEditingRecipe(undefined);
+      setAdminMessage("Database unavailable; recipe saved locally in this browser.");
     }
   };
 
@@ -963,12 +1041,23 @@ export default function App() {
         method: "DELETE",
       });
       if (!response.ok) throw new Error(`Failed with status ${response.status}`);
-      setRecipes((prev) => prev.filter((recipe) => recipe.id !== id));
+      setRecipes((prev) => {
+        const next = prev.filter((recipe) => recipe.id !== id);
+        writeLocalRecipes(next);
+        return next;
+      });
       setModalOpen(false);
       setEditingRecipe(undefined);
       setAdminMessage("");
     } catch (_error) {
-      setAdminMessage("Could not delete recipe. Please retry.");
+      setRecipes((prev) => {
+        const next = prev.filter((recipe) => recipe.id !== id);
+        writeLocalRecipes(next);
+        return next;
+      });
+      setModalOpen(false);
+      setEditingRecipe(undefined);
+      setAdminMessage("Database unavailable; recipe removed locally in this browser.");
     }
   };
 
@@ -1002,6 +1091,86 @@ export default function App() {
     setAdminMessage("Tag added.");
   };
 
+  const downloadJson = (data: Recipe | Recipe[], filename: string) => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportRecipes = () => {
+    const fileDate = new Date().toISOString().slice(0, 10);
+    downloadJson(recipes, `anujs-kitchen-recipes-${fileDate}.json`);
+  };
+
+  const exportRecipe = (recipe: Recipe) => {
+    const fileDate = new Date().toISOString().slice(0, 10);
+    const slug = recipe.title
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    downloadJson(recipe, `anujs-kitchen-${slug || recipe.id}-${fileDate}.json`);
+  };
+
+  const importRecipes = (file: File | undefined) => {
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const raw = JSON.parse(String(reader.result ?? ""));
+        const entries = Array.isArray(raw) ? raw : [raw];
+        const importedRecipes = entries
+          .filter(isRecipeLike)
+          .map((entry) =>
+            normalizeRecipe({
+              id: String(entry.id || generateLocalRecipeId()),
+              author: String(entry.author || currentUser?.username || "import"),
+              title: String(entry.title || ""),
+              cuisine: String(entry.cuisine || ""),
+              tags: Array.isArray(entry.tags) ? entry.tags : [],
+              prepTime: String(entry.prepTime ?? ""),
+              difficulty:
+                entry.difficulty === "Medium" || entry.difficulty === "Advanced" ? entry.difficulty : "Easy",
+              servings: String(entry.servings ?? ""),
+              image: String(entry.image ?? ""),
+              description: String(entry.description ?? ""),
+              ingredients: Array.isArray(entry.ingredients) ? entry.ingredients : [],
+              steps: Array.isArray(entry.steps) ? entry.steps : [],
+            }),
+          )
+          .filter((recipe) => recipe.title.trim() && recipe.cuisine.trim())
+          .map((recipe, index, collection) => {
+            const duplicateEarlier = collection.findIndex((entry) => entry.id === recipe.id) !== index;
+            return duplicateEarlier ? { ...recipe, id: generateLocalRecipeId() } : recipe;
+          });
+
+        if (!importedRecipes.length) {
+          setAdminMessage("Import failed: no valid recipes found.");
+          return;
+        }
+
+        setRecipes((prev) => {
+          const importedIds = new Set(importedRecipes.map((recipe) => recipe.id));
+          const next = [...importedRecipes, ...prev.filter((recipe) => !importedIds.has(recipe.id))];
+          writeLocalRecipes(next);
+          return next;
+        });
+        setAdminMessage(`Imported ${importedRecipes.length} recipe${importedRecipes.length === 1 ? "" : "s"}.`);
+      } catch (_error) {
+        setAdminMessage("Import failed: choose a valid recipe JSON export.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const initialValues = editingRecipe
     ? {
         title: editingRecipe.title,
@@ -1016,7 +1185,6 @@ export default function App() {
         steps: editingRecipe.steps,
       }
     : defaultRecipeInput();
-
   return (
     <div
       className="app-shell"
@@ -1144,6 +1312,7 @@ export default function App() {
                             setEditingRecipe(entry);
                             setModalOpen(true);
                           }}
+                          onExport={exportRecipe}
                           canEdit={currentUser?.role === "admin"}
                         />
                       ))}
@@ -1177,7 +1346,7 @@ export default function App() {
                   <button
                     type="button"
                     className={`primary ${currentUser?.role !== "admin" ? "locked" : ""}`}
-                    onClick={currentUser?.role === "admin" ? handleCreate : undefined}
+                    onClick={handleCreate}
                   >
                     Open Recipe Studio
                   </button>
@@ -1217,6 +1386,30 @@ export default function App() {
             </div>
           )}
 
+          <div className="archive-card">
+            <div>
+              <h4>Archive Tools</h4>
+              <p>Export the collection or import a matching recipe JSON file.</p>
+            </div>
+            <div className="archive-actions">
+              <button className="ghost export-button" type="button" onClick={exportRecipes} disabled={loading}>
+                Export JSON
+              </button>
+              <label className={`ghost import-button ${loading ? "disabled" : ""}`}>
+                Import JSON
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  disabled={loading}
+                  onChange={(event) => {
+                    importRecipes(event.target.files?.[0]);
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+
           {currentUser?.role === "admin" ? (
             <div className="rules-card">
               <h4>Category Manager</h4>
@@ -1254,6 +1447,7 @@ export default function App() {
         onSubmit={handleSubmit}
         onDelete={handleDelete}
         readOnly={viewOnlyMode || currentUser?.role !== "admin"}
+        statusMessage={adminMessage}
       />
 
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} onRegister={register} onLogin={login} />

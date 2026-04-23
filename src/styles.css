@@ -287,6 +287,7 @@ h4 {
 .ghost,
 .primary,
 .danger,
+.card-export,
 .card-edit {
   border-radius: 999px;
   border: 1px solid transparent;
@@ -379,16 +380,25 @@ body[data-theme="light"] .primary {
   background: transparent;
 }
 
-.card-edit {
+.card-actions {
   position: absolute;
   top: 0.75rem;
   right: 0.75rem;
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.card-export,
+.card-edit {
   border-color: var(--line);
   background: rgba(0, 0, 0, 0.58);
   color: #ffffff;
   padding: 0.42rem 0.72rem;
 }
 
+body[data-theme="light"] .card-export,
 body[data-theme="light"] .card-edit {
   background: rgba(255, 255, 255, 0.88);
   color: #0f0f0f;
@@ -422,6 +432,7 @@ body[data-theme="light"] .card-edit {
 }
 
 .session-card,
+.archive-card,
 .rules-card {
   border: 1px solid var(--line);
   border-radius: 0.85rem;
@@ -430,15 +441,46 @@ body[data-theme="light"] .card-edit {
 }
 
 .session-card p,
+.archive-card p,
 .rules-card p {
   margin: 0 0 0.7rem;
   color: var(--text-soft);
   line-height: 1.5;
 }
 
+.archive-card h4,
 .rules-card h4 {
   margin: 0 0 0.45rem;
   font-size: 1rem;
+}
+
+.archive-actions {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.export-button,
+.import-button {
+  width: 100%;
+}
+
+.import-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.import-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.import-button.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .role-chip {
@@ -546,6 +588,12 @@ body[data-theme="light"] .card-edit {
   overflow: hidden;
 }
 
+.recipe-modal.editor-modal {
+  width: min(1100px, 96vw);
+  max-height: calc(100vh - 2rem);
+  overflow: hidden;
+}
+
 .modal-topbar {
   border: 1px solid var(--line);
   border-radius: 1rem;
@@ -570,6 +618,14 @@ body[data-theme="light"] .card-edit {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 1rem;
   height: calc(100vh - 11.8rem);
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.modal-grid.editor-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem;
+  max-height: calc(100vh - 12.5rem);
   overflow: auto;
   padding-right: 0.2rem;
 }
@@ -797,6 +853,15 @@ body[data-theme="light"] .dropzone-copy {
   color: var(--text-soft);
 }
 
+.footer-copy {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.status-message {
+  color: var(--accent);
+}
+
 .modal-footer {
   border: 1px solid var(--line);
   border-radius: 1rem;
@@ -840,6 +905,10 @@ body[data-theme="light"] .dropzone-copy {
   .modal-grid.fullscreen {
     grid-template-columns: 1fr;
     height: calc(100vh - 12.5rem);
+  }
+
+  .modal-grid.editor-grid {
+    grid-template-columns: 1fr;
   }
 
   .right-panel {
